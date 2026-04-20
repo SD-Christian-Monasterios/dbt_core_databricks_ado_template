@@ -1,0 +1,33 @@
+resources:
+  jobs:
+    template_sample_job:
+      name: template_sample_job-${bundle.target}
+      schedule:
+        quartz_cron_expression: "0 0 1 * * ?"
+        timezone_id: "UTC"
+        pause_status: "PAUSED"
+      tasks:
+        - task_key: job_for_dbt
+          dbt_task:
+            project_directory: dbt
+            commands:
+              - "dbt deps"
+              - "dbt compile --vars '{\"catalog\": \"${var.catalog}\"}'"
+              - "dbt seed --vars '{\"catalog\": \"${var.catalog}\"}'"
+            warehouse_id: ${var.warehouse_id}
+            catalog: ${var.catalog}
+            source: GIT
+          environment_key: job_for_dbt_environment
+      git_source:
+        git_url: ${var.git_url}
+        git_provider: gitHub
+        git_branch: ${var.git_branch}
+      queue:
+        enabled: true
+      environments:
+        - environment_key: job_for_dbt_environment
+          spec:
+            dependencies:
+              - "dbt-databricks>=1.0.0,<2.0.0"
+            environment_version: "4"
+      performance_target: PERFORMANCE_OPTIMIZED

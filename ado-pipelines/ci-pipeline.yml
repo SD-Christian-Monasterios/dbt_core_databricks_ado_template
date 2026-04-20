@@ -1,0 +1,143 @@
+name: CI — dbt validation on PR
+
+trigger: none
+
+pr:
+  branches:
+    include:
+      - dev
+      - stg
+      - main
+
+variables:
+  - group: dbt-databricks-cicd-template
+
+jobs:
+  - job: dbt_ci
+    displayName: dbt compile
+    pool:
+      name: Linux
+    steps:
+      - checkout: self
+
+      - script: |
+          pip install dbt-databricks sqlfluff sqlfluff-templater-dbt
+          export PATH=$PATH:~/.local/bin
+          echo "##vso[task.setvariable variable=PATH]$PATH:~/.local/bin"
+          dbt --version
+          sqlfluff --version
+        displayName: Install dbt and sqlfluff
+
+      - script: |
+          if [ "$(System.PullRequest.TargetBranch)" = "refs/heads/main" ] || [ "$(System.PullRequest.TargetBranch)" = "main" ]; then
+            HOST=$(DATABRICKS_HOST_PROD)
+            HTTP_PATH=$(DATABRICKS_HTTP_PATH_PROD)
+            TOKEN=$(DATABRICKS_TOKEN_PROD)
+          elif [ "$(System.PullRequest.TargetBranch)" = "refs/heads/stg" ] || [ "$(System.PullRequest.TargetBranch)" = "stg" ]; then
+            HOST=$(DATABRICKS_HOST_STG)
+            HTTP_PATH=$(DATABRICKS_HTTP_PATH_STG)
+            TOKEN=$(DATABRICKS_TOKEN_STG)
+          else
+            HOST=$(DATABRICKS_HOST_DEV)
+            HTTP_PATH=$(DATABRICKS_HTTP_PATH_DEV)
+            TOKEN=$(DATABRICKS_TOKEN_DEV)
+          fi
+          echo "##vso[task.setvariable variable=DBT_HOST]$HOST"
+          echo "##vso[task.setvariable variable=DBT_HTTP_PATH]$HTTP_PATH"
+          echo "##vso[task.setvariable variable=DBT_TOKEN]$TOKEN"
+        displayName: Set dbt credentials
+
+      - script: |
+          cat <<EOF > dbt/profiles.yml
+          dbt_dbx_template:
+            target: ci
+            outputs:
+              ci:
+                type: databricks
+                host: "$(DBT_HOST)"
+                http_path: "$(DBT_HTTP_PATH)"
+                token: "$(DBT_TOKEN)"
+                schema: default
+                threads: 8
+          EOF
+        displayName: Create profiles.yml
+
+      - script: |
+          cat <<EOF > dbt/.sqlfluff
+          [sqlfluff]
+          templater = dbt
+          dialect = databricks
+          runaway_limit = 10
+
+          [sqlfluff:templater:dbt]
+          project_dir = .
+          profiles_dir = .
+          profile = dbt_dbx_template
+          target = ci
+
+          [sqlfluff:templater:dbt:context]
+          catalog = ci_placeholder
+          EOF
+        displayName: Create .sqlfluff config
+
+      - script: dbt deps
+        displayName: Install dbt dependencies
+        workingDirectory: dbt
+
+      - script: >
+          dbt compile --vars '{"catalog": "ci_placeholder"}'
+        displayName: Compile dbt project
+        workingDirectory: dbt
+
+      - script: |
+          sqlfluff lint models/ --dialect databricks --templater dbt
+        displayName: SQL lint
+        workingDirectory: dbt
+
+  - job: bundle_validate
+    displayName: Bundle validate
+    pool:
+      name: Linux
+    steps:
+      - checkout: self
+
+      - script: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+        displayName: Install Databricks CLI
+
+      - script: |
+          if [ "$(System.PullRequest.TargetBranch)" = "refs/heads/main" ] || [ "$(System.PullRequest.TargetBranch)" = "main" ]; then
+            TARGET=prod
+            WH=$(WAREHOUSE_ID_PROD)
+            echo "##vso[task.setvariable variable=DBX_HOST_BUNDLE]https://$(DATABRICKS_HOST_PROD)"
+            echo "##vso[task.setvariable variable=DBX_TOKEN_BUNDLE]$(DATABRICKS_TOKEN_PROD)"
+          elif [ "$(System.PullRequest.TargetBranch)" = "refs/heads/stg" ] || [ "$(System.PullRequest.TargetBranch)" = "stg" ]; then
+            TARGET=stg
+            WH=$(WAREHOUSE_ID_STG)
+            echo "##vso[task.setvariable variable=DBX_HOST_BUNDLE]https://$(DATABRICKS_HOST_STG)"
+            echo "##vso[task.setvariable variable=DBX_TOKEN_BUNDLE]$(DATABRICKS_TOKEN_STG)"
+          else
+            TARGET=dev
+            WH=$(WAREHOUSE_ID_DEV)
+            echo "##vso[task.setvariable variable=DBX_HOST_BUNDLE]https://$(DATABRICKS_HOST_DEV)"
+            echo "##vso[task.setvariable variable=DBX_TOKEN_BUNDLE]$(DATABRICKS_TOKEN_DEV)"
+          fi
+          echo "##vso[task.setvariable variable=BUNDLE_TARGET]$TARGET"
+          echo "##vso[task.setvariable variable=WH_ID]$WH"
+        displayName: Set bundle credentials
+
+      - script: |
+          mkdir -p $(Agent.TempDirectory)/.config/git
+          touch $(Agent.TempDirectory)/.config/git/ignore
+          databricks bundle validate --target $(BUNDLE_TARGET) \
+            --var="warehouse_id=$WH_ID" \
+            --var="git_url=$GIT_URL"
+        displayName: Bundle validate
+        workingDirectory: dab
+        env:
+          DATABRICKS_HOST: $(DBX_HOST_BUNDLE)
+          DATABRICKS_TOKEN: $(DBX_TOKEN_BUNDLE)
+          WH_ID: $(WH_ID)
+          GIT_URL: $(GIT_URL)
+          GIT_CONFIG_GLOBAL: $(Agent.TempDirectory)/.gitconfig
+          XDG_CONFIG_HOME: $(Agent.TempDirectory)/.config

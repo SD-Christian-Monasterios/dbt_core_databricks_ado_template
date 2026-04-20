@@ -1,0 +1,25 @@
+name: dbt_dbx_template
+version: "1.0.0"
+config-version: 2
+
+# Project Template DBT + DBX
+
+profile: dbt_dbx_template
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+
+models:
+  dbt_dbx_template:
+    +schema: cicd_template
+    +catalog: "{{ var('catalog') }}"
+    +materialized: view
+
+seeds:
+  dbt_dbx_template:
+    +schema: cicd_template
+    +catalog: "{{ var('catalog') }}"
+    +file_format: delta

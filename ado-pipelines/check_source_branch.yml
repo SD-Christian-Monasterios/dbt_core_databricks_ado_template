@@ -1,0 +1,41 @@
+name: CI - Branch Protection
+
+trigger: none
+
+pr:
+  branches:
+    include:
+      - main
+      - stg
+
+jobs:
+  - job: check_source_branch
+    displayName: Source Branch Check
+    pool:
+      name: Linux
+    steps:
+      - script: |
+          SOURCE=$(System.PullRequest.SourceBranch)
+          SOURCE=${SOURCE#refs/heads/}
+          TARGET=$(System.PullRequest.TargetBranch)
+          TARGET=${TARGET#refs/heads/}
+
+          if [ "$TARGET" = "main" ] && [ "$SOURCE" != "stg" ] && [[ "$SOURCE" != hotfix/* ]]; then
+            echo "Error - PRs to 'main' are only allowed from 'stg' or 'hotfix/*' branches."
+            echo "Current source branch: $SOURCE"
+            exit 1
+          fi
+
+          if [ "$TARGET" = "stg" ] && [ "$SOURCE" != "dev" ]; then
+            echo "Error - PRs to 'stg' are only allowed from the 'dev' branch."
+            echo "Current source branch: $SOURCE"
+            exit 1
+          fi
+
+          if [[ "$SOURCE" == hotfix/* ]] && [ "$TARGET" = "main" ]; then
+            echo "WARNING - HOTFIX detected. Source: $SOURCE -> Target: $TARGET"
+            echo "WARNING - Reminder: after merging, open manual PRs to back-merge main -> stg -> dev"
+          fi
+
+          echo "OK - Source branch is valid, proceeding. Source: $SOURCE -> Target: $TARGET"
+        displayName: Verify source branch

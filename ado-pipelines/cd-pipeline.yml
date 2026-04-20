@@ -1,0 +1,116 @@
+name: CD — deploy on merge
+
+trigger:
+  branches:
+    include:
+      - dev
+      - stg
+      - main
+  paths:
+    include:
+      - dbt/*
+      - dab/*
+
+pr: none
+
+variables:
+  - group: dbt-databricks-cicd-template
+
+stages:
+  - stage: validate
+    displayName: Validate
+    jobs:
+      - job: bundle_validate
+        displayName: Bundle validate
+        pool:
+          name: Linux
+        steps:
+          - checkout: self
+
+          - script: |
+              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+            displayName: Install Databricks CLI
+
+          - script: |
+              if [ "$(Build.SourceBranch)" = "refs/heads/main" ] || [ "$(Build.SourceBranch)" = "main" ]; then
+                echo "##vso[task.setvariable variable=BUNDLE_TARGET]prod"
+                echo "##vso[task.setvariable variable=DBX_HOST]https://$(DATABRICKS_HOST_PROD)"
+                echo "##vso[task.setvariable variable=DBX_TOKEN]$(DATABRICKS_TOKEN_PROD)"
+                echo "##vso[task.setvariable variable=WH_ID]$(WAREHOUSE_ID_PROD)"
+              elif [ "$(Build.SourceBranch)" = "refs/heads/stg" ] || [ "$(Build.SourceBranch)" = "stg" ]; then
+                echo "##vso[task.setvariable variable=BUNDLE_TARGET]stg"
+                echo "##vso[task.setvariable variable=DBX_HOST]https://$(DATABRICKS_HOST_STG)"
+                echo "##vso[task.setvariable variable=DBX_TOKEN]$(DATABRICKS_TOKEN_STG)"
+                echo "##vso[task.setvariable variable=WH_ID]$(WAREHOUSE_ID_STG)"
+              else
+                echo "##vso[task.setvariable variable=BUNDLE_TARGET]dev"
+                echo "##vso[task.setvariable variable=DBX_HOST]https://$(DATABRICKS_HOST_DEV)"
+                echo "##vso[task.setvariable variable=DBX_TOKEN]$(DATABRICKS_TOKEN_DEV)"
+                echo "##vso[task.setvariable variable=WH_ID]$(WAREHOUSE_ID_DEV)"
+              fi
+            displayName: Set credentials
+
+          - script: |
+              mkdir -p $(Agent.TempDirectory)/.config/git
+              touch $(Agent.TempDirectory)/.config/git/ignore
+              databricks bundle validate --target $(BUNDLE_TARGET) \
+                --var="warehouse_id=$WH_ID" \
+                --var="git_url=$GIT_URL"
+            displayName: Bundle validate
+            workingDirectory: dab
+            env:
+              DATABRICKS_HOST: $(DBX_HOST)
+              DATABRICKS_TOKEN: $(DBX_TOKEN)
+              WH_ID: $(WH_ID)
+              GIT_URL: $(GIT_URL)
+              XDG_CONFIG_HOME: $(Agent.TempDirectory)/.config
+
+  - stage: deploy
+    displayName: Deploy
+    dependsOn: validate
+    condition: and(succeeded(), or(
+      eq(variables['Build.SourceBranch'], 'refs/heads/main'),
+      eq(variables['Build.SourceBranch'], 'main'),
+      eq(variables['Build.SourceBranch'], 'refs/heads/stg'),
+      eq(variables['Build.SourceBranch'], 'stg')
+      ))
+    jobs:
+      - job: bundle_deploy
+        displayName: Bundle deploy
+        pool:
+          name: Linux
+        steps:
+          - checkout: self
+
+          - script: |
+              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+            displayName: Install Databricks CLI
+
+          - script: |
+              if [ "$(Build.SourceBranch)" = "refs/heads/main" ] || [ "$(Build.SourceBranch)" = "main" ]; then
+                echo "##vso[task.setvariable variable=BUNDLE_TARGET]prod"
+                echo "##vso[task.setvariable variable=DBX_HOST]https://$(DATABRICKS_HOST_PROD)"
+                echo "##vso[task.setvariable variable=DBX_TOKEN]$(DATABRICKS_TOKEN_PROD)"
+                echo "##vso[task.setvariable variable=WH_ID]$(WAREHOUSE_ID_PROD)"
+              else
+                echo "##vso[task.setvariable variable=BUNDLE_TARGET]stg"
+                echo "##vso[task.setvariable variable=DBX_HOST]https://$(DATABRICKS_HOST_STG)"
+                echo "##vso[task.setvariable variable=DBX_TOKEN]$(DATABRICKS_TOKEN_STG)"
+                echo "##vso[task.setvariable variable=WH_ID]$(WAREHOUSE_ID_STG)"
+              fi
+            displayName: Set deploy credentials
+
+          - script: |
+              mkdir -p $(Agent.TempDirectory)/.config/git
+              touch $(Agent.TempDirectory)/.config/git/ignore
+              databricks bundle deploy --target $BUNDLE_TARGET \
+                --var="warehouse_id=$WH_ID" \
+                --var="git_url=$GIT_URL"
+            displayName: Bundle deploy
+            workingDirectory: dab
+            env:
+              DATABRICKS_HOST: $(DBX_HOST)
+              DATABRICKS_TOKEN: $(DBX_TOKEN)
+              WH_ID: $(WH_ID)
+              GIT_URL: $(GIT_URL)
+              XDG_CONFIG_HOME: $(Agent.TempDirectory)/.config

@@ -1,0 +1,46 @@
+bundle:
+  name: dab-demo-dbt
+
+include:
+  - resources/*.yml
+
+variables:
+  schema:
+    description: Schema to use
+  git_url:
+    description: GitHub repository URL
+  git_branch:
+    description: Git branch to use
+  warehouse_id:
+    description: Databricks SQL warehouse ID
+  catalog:
+    description: Databricks catalog to use  
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      git_branch: dev
+      schema: ${workspace.current_user.short_name}
+      catalog: team_loan360_dev
+
+  stg:
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      git_branch: stg
+      schema: default
+      catalog: team_loan360_qa
+
+  prod:
+    workspace:
+      root_path: /Workspace/Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      git_branch: main
+      schema: default
+      catalog: team_loan360_prod
+
+    

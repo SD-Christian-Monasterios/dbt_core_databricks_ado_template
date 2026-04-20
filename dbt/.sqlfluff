@@ -1,0 +1,13 @@
+[sqlfluff]
+templater = dbt
+dialect = databricks
+runaway_limit = 10
+
+[sqlfluff:templater:dbt]
+project_dir = .
+profiles_dir = .
+profile = dbt_dbx_template
+target = dev
+
+[sqlfluff:templater:dbt:context]
+catalog = team_loan360_dev

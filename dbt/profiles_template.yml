@@ -1,0 +1,24 @@
+dbt_dbx_template:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      host: "adb-xxxxxxxxx.1.azuredatabricks.net"
+      http_path: "/sql/1.0/warehouses/xxxxxxxxx"
+      token: "xxxxxxxxx"
+      schema: default
+      threads: 8
+    stg:
+      type: databricks
+      host: "adb-xxxxxxxxx.11.azuredatabricks.net"
+      http_path: "/sql/1.0/warehouses/xxxxxxxxx"
+      token: "xxxxxxxxx"
+      schema: default
+      threads: 8
+    prod:
+      type: databricks
+      host: "adb-xxxxxxxxx.2.azuredatabricks.net"
+      http_path: "/sql/1.0/warehouses/xxxxxxxxx"
+      token: "xxxxxxxxx"
+      schema: default
+      threads: 8
